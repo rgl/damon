@@ -1,0 +1,29 @@
+name: Build
+on: [push]
+jobs:
+  build:
+    name: Build
+    runs-on: windows-2019
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v2
+        with:
+          go-version: '^1.15.5'
+      - name: Lint
+        run: .\make.ps1 -Lint
+      - name: Test
+        run: .\make.ps1 -Test
+      - name: Build
+        run: .\make.ps1 -Build
+      - name: Create Archive
+        run: |
+          Compress-Archive damon.exe damon.zip
+          Compress-Archive test-damon.exe test-damon.zip
+      - name: Archive Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: artifacts
+          path: |
+            *.zip

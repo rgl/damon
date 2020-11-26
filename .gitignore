@@ -13,3 +13,5 @@
 
 # Don't check in any log files
 *.log
+
+*.zip
