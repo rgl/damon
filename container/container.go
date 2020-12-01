@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/jet/damon/log"
 	"github.com/jet/damon/win32"
@@ -20,6 +22,9 @@ type Config struct {
 	EnforceMemory bool
 	// RestrictedToken will run the process with restricted privileges
 	RestrictedToken bool
+	// User is the user that runs the process. This user must have the
+	// "Log on as a batch job" right.
+	User *win32.UserLogin
 	// MemoryMBLimit is the maximum committed memory that the container will allow.
 	// Going over this limit will cause the program to crash with a memory allocation error.
 	MemoryMBLimit int
@@ -72,7 +77,7 @@ type ProcessStats struct {
 type MemoryStats struct {
 	WorkingSetSizeBytes uint64
 	PrivateUsageBytes   uint64
-	PageFaultCount uint64
+	PageFaultCount      uint64
 }
 
 type CPUStats struct {
@@ -102,9 +107,40 @@ func (c *Container) Start() error {
 		return errors.Wrapf(err, "unable to get create win32.JobObject")
 	}
 	c.job = job
-	token, err := win32.CurrentProcessToken()
-	if err != nil {
-		return errors.Wrapf(err, "unable to get current process token")
+
+	var token *win32.Token
+	if c.Config.User != nil {
+		c.Logger.Logf("creating batch user token for %s", c.Config.User.Username)
+		token, err = win32.CreateBatchUserToken(*c.Config.User)
+		if err != nil {
+			return errors.Wrapf(err, "unable to create user process token")
+		}
+		var profileInfo win32.ProfileInfo
+		profileInfo.Size = uint32(unsafe.Sizeof(profileInfo))
+		profileInfo.ServerName = syscall.StringToUTF16Ptr(c.Config.User.Domain)
+		profileInfo.UserName = syscall.StringToUTF16Ptr(c.Config.User.Username)
+		profileInfo.Flags = win32.PI_NOUI
+		err = win32.LoadUserProfile(token, &profileInfo)
+		if err != nil {
+			return errors.Wrapf(err, "failed to load user profile")
+		}
+
+		// TODO unload user profile after starting the process.
+		// err = win32.UnloadUserProfile(token, profileInfo.Profile)
+		// if err != nil {
+		// 	return errors.WithStack(err)
+		// }
+
+		// TODO propagate some environment variables?
+		// c.Command.Env, err = token.Environment(true)
+		// if err != nil {
+		// 	return errors.Wrapf(err, "unable to get user environment")
+		// }
+	} else {
+		token, err = win32.CurrentProcessToken()
+		if err != nil {
+			return errors.Wrapf(err, "unable to get current process token")
+		}
 	}
 	if c.Config.RestrictedToken {
 		c.Logger.Logln("creating restricted token")
@@ -156,16 +192,16 @@ func (c *Container) Start() error {
 		}
 		nli := &win32.NotificationLimitInformation{
 			CPURateLimit: &win32.NotificationRateLimitTolerance{
-				Level: win32.ToleranceLow,
+				Level:    win32.ToleranceLow,
 				Interval: win32.ToleranceIntervalLong,
 			},
 		}
 		crci := &win32.CPURateControlInformation{
 			Rate: &win32.CPUMaxRateInformation{
 				HardCap: true,
-				Rate: win32.MHzToCPURate(uint64(c.Config.CPUMHzLimit)),
+				Rate:    win32.MHzToCPURate(uint64(c.Config.CPUMHzLimit)),
 			},
-			Notify: true,	
+			Notify: true,
 		}
 		if err = c.killOnError(job.SetInformation(nli)); err != nil {
 			c.closeLogError(job, "failed to close JobObject")
@@ -272,7 +308,7 @@ func (c *Container) pollStats() {
 				MemoryStats: MemoryStats{
 					WorkingSetSizeBytes: meminfo.WorkingSetSize,
 					PrivateUsageBytes:   meminfo.PrivateUsage,
-					PageFaultCount: uint64(meminfo.PageFaultCount),
+					PageFaultCount:      uint64(meminfo.PageFaultCount),
 				},
 				IOStats: IOStats{
 					TotalIOOperations:      info.IO.OtherOperationCount + info.IO.ReadOperationCount + info.IO.WriteOperationCount,

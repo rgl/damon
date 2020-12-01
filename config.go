@@ -11,6 +11,7 @@ import (
 
 	"github.com/jet/damon/container"
 	"github.com/jet/damon/log"
+	"github.com/jet/damon/win32"
 )
 
 const DefaultLogMaxSizeMB = 10
@@ -39,6 +40,9 @@ const (
 	EnvNomadCPULimit           = "NOMAD_CPU_LIMIT"
 	EnvDamonMemoryLimit        = "DAMON_MEMORY_LIMIT"
 	EnvNomadMemoryLimit        = "NOMAD_MEMORY_LIMIT"
+	EnvDamonUserDomain         = "DAMON_USER_DOMAIN"
+	EnvDamonUserName           = "DAMON_USER_NAME"
+	EnvDamonUserPassword       = "DAMON_USER_PASSWORD"
 	EnvDamonRestrictedToken    = "DAMON_RESTRICTED_TOKEN"
 	EnvDamonAddress            = "DAMON_ADDR"
 	EnvDamonMetricsEndpoint    = "DAMON_METRICS_ENDPOINT"
@@ -118,6 +122,23 @@ func envToInt(def int64, envs ...string) (int64, error) {
 	return def, nil
 }
 
+func envToUser(envDomain string, envUser string, envPassword string) *win32.UserLogin {
+	domain := os.Getenv(envDomain)
+	if domain == "" {
+		domain = "."
+	}
+	username := os.Getenv(envUser)
+	if username == "" {
+		return nil
+	}
+	password := os.Getenv(envPassword)
+	return &win32.UserLogin{
+		Domain:   domain,
+		Username: username,
+		Password: win32.UnsafePasswordString(password),
+	}
+}
+
 func ListenAddress() string {
 	if env := os.Getenv(EnvDamonAddress); env != "" {
 		return env
@@ -153,6 +174,7 @@ func LoadContainerConfigFromEnvironment() (container.Config, error) {
 		cfg.EnforceMemory = envToBool(EnvDamonEnforceMemoryLimit, true)
 		cfg.MemoryMBLimit = int(mem)
 	}
+	cfg.User = envToUser(EnvDamonUserDomain, EnvDamonUserName, EnvDamonUserPassword)
 	cfg.RestrictedToken = envToBool(EnvDamonRestrictedToken, false)
 
 	if cfg.EnforceCPU && cfg.CPUMHzLimit < container.MinimumCPUMHz {

@@ -71,6 +71,7 @@ func main() {
 	}
 	m.Init()
 	c := container.Container{
+		//Name:    "TODO set from nomad allocation?",
 		Command: cmd,
 		Config:  ccfg,
 		Logger:  clogger,

@@ -1,3 +1,7 @@
+```powershell
+$env:DAMON_CPU_LIMIT = '2000'; .\damon.exe .\test-damon.exe cpu 1h 
+```
+
 # Damon
 
 [![Build status](https://github.com/rgl/damon/workflows/Build/badge.svg)](https://github.com/rgl/damon/actions?query=workflow%3ABuild)
