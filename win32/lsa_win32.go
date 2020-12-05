@@ -5,16 +5,21 @@ package win32
 import (
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
-	procLsaOpenPolicy             = advapi32DLL.NewProc("LsaOpenPolicy")
-	procLsaClose                  = advapi32DLL.NewProc("LsaClose")
-	procLsaFreeMemory             = advapi32DLL.NewProc("LsaFreeMemory")
-	procLsaNtStatusToWinError     = advapi32DLL.NewProc("LsaNtStatusToWinError")
-	procLsaAddAccountRights       = advapi32DLL.NewProc("LsaAddAccountRights")
-	procLsaEnumerateAccountRights = advapi32DLL.NewProc("LsaEnumerateAccountRights")
-	procLsaRemoveAccountRights    = advapi32DLL.NewProc("LsaRemoveAccountRights")
+	procLsaOpenPolicy                  = advapi32DLL.NewProc("LsaOpenPolicy")
+	procLsaClose                       = advapi32DLL.NewProc("LsaClose")
+	procLsaFreeMemory                  = advapi32DLL.NewProc("LsaFreeMemory")
+	procLsaNtStatusToWinError          = advapi32DLL.NewProc("LsaNtStatusToWinError")
+	procLsaAddAccountRights            = advapi32DLL.NewProc("LsaAddAccountRights")
+	procLsaEnumerateAccountRights      = advapi32DLL.NewProc("LsaEnumerateAccountRights")
+	procLsaRemoveAccountRights         = advapi32DLL.NewProc("LsaRemoveAccountRights")
+	procLsaRegisterLogonProcess        = advapi32DLL.NewProc("LsaRegisterLogonProcess")
+	procLsaLookupAuthenticationPackage = advapi32DLL.NewProc("LsaLookupAuthenticationPackage")
+	procLsaLogonUser                   = advapi32DLL.NewProc("LsaLogonUser")
 )
 
 // typedef struct _LSA_OBJECT_ATTRIBUTES {
@@ -228,6 +233,212 @@ func lsaNtStatusToWinError(status uintptr) error {
 // https://docs.microsoft.com/en-us/windows/desktop/api/ntsecapi/nf-ntsecapi-lsafreememory
 func lsaFreeMemory(buf uintptr) error {
 	status, _, _ := procLsaFreeMemory.Call(buf)
+	if status == _STATUS_SUCCESS {
+		return nil
+	}
+	return lsaNtStatusToWinError(status)
+}
+
+// typedef ULONG LSA_OPERATIONAL_MODE,*PLSA_OPERATIONAL_MODE;
+// https://github.com/Alexpux/mingw-w64/blob/d0d7f784833bbb0b2d279310ddc6afb52fe47a46/mingw-w64-headers/include/ntsecapi.h#L19
+type _LSA_OPERATIONAL_MODE uint32
+
+// https://github.com/Alexpux/mingw-w64/blob/d0d7f784833bbb0b2d279310ddc6afb52fe47a46/mingw-w64-headers/include/ntsecapi.h#L630
+const MSV1_0_PACKAGE_NAME = "MICROSOFT_AUTHENTICATION_PACKAGE_V1_0"
+
+// https://github.com/Alexpux/mingw-w64/blob/d0d7f784833bbb0b2d279310ddc6afb52fe47a46/mingw-w64-headers/include/ntsecapi.h#L968
+const MICROSOFT_KERBEROS_NAME = "Kerberos"
+
+// typedef enum _MSV1_0_LOGON_SUBMIT_TYPE {
+//   MsV1_0InteractiveLogon = 2,
+//   MsV1_0Lm20Logon,
+//   MsV1_0NetworkLogon,
+//   MsV1_0SubAuthLogon,
+//   MsV1_0WorkstationUnlockLogon = 7,
+//   MsV1_0S4ULogon = 12,
+//   MsV1_0VirtualLogon = 82
+// } MSV1_0_LOGON_SUBMIT_TYPE, *PMSV1_0_LOGON_SUBMIT_TYPE;
+// https://github.com/Alexpux/mingw-w64/blob/d0d7f784833bbb0b2d279310ddc6afb52fe47a46/mingw-w64-headers/ddk/include/ddk/ntifs.h#L2619-L2627
+type MSV1_0_LOGON_SUBMIT_TYPE uint32
+
+const (
+	MsV1_0InteractiveLogon       MSV1_0_LOGON_SUBMIT_TYPE = 2
+	MsV1_0Lm20Logon              MSV1_0_LOGON_SUBMIT_TYPE = 3
+	MsV1_0NetworkLogon           MSV1_0_LOGON_SUBMIT_TYPE = 4
+	MsV1_0SubAuthLogon           MSV1_0_LOGON_SUBMIT_TYPE = 5
+	MsV1_0WorkstationUnlockLogon MSV1_0_LOGON_SUBMIT_TYPE = 7
+	MsV1_0S4ULogon               MSV1_0_LOGON_SUBMIT_TYPE = 12
+	MsV1_0VirtualLogon           MSV1_0_LOGON_SUBMIT_TYPE = 82
+)
+
+// typedef enum _SECURITY_LOGON_TYPE {
+// 	Interactive = 2,Network,Batch,Service,Proxy,Unlock,NetworkCleartext,NewCredentials,RemoteInteractive,CachedInteractive,
+// 	CachedRemoteInteractive,CachedUnlock
+// } SECURITY_LOGON_TYPE,*PSECURITY_LOGON_TYPE;
+// https://github.com/Alexpux/mingw-w64/blob/d0d7f784833bbb0b2d279310ddc6afb52fe47a46/mingw-w64-headers/include/ntsecapi.h#L28-L31
+type SECURITY_LOGON_TYPE uint32
+
+const (
+	Interactive             SECURITY_LOGON_TYPE = 2
+	Network                 SECURITY_LOGON_TYPE = 3
+	Batch                   SECURITY_LOGON_TYPE = 4
+	Service                 SECURITY_LOGON_TYPE = 5
+	Proxy                   SECURITY_LOGON_TYPE = 6
+	Unlock                  SECURITY_LOGON_TYPE = 7
+	NetworkCleartext        SECURITY_LOGON_TYPE = 8
+	NewCredentials          SECURITY_LOGON_TYPE = 9
+	RemoteInteractive       SECURITY_LOGON_TYPE = 10
+	CachedInteractive       SECURITY_LOGON_TYPE = 11
+	CachedRemoteInteractive SECURITY_LOGON_TYPE = 12
+	CachedUnlock            SECURITY_LOGON_TYPE = 13
+)
+
+// typedef struct _MSV1_0_S4U_LOGON {
+//   MSV1_0_LOGON_SUBMIT_TYPE MessageType;
+//   ULONG Flags;
+//   UNICODE_STRING UserPrincipalName;
+//   UNICODE_STRING DomainName;
+// } MSV1_0_S4U_LOGON, *PMSV1_0_S4U_LOGON;
+// https://github.com/Alexpux/mingw-w64/blob/d0d7f784833bbb0b2d279310ddc6afb52fe47a46/mingw-w64-headers/ddk/include/ddk/ntifs.h#L2688-L2693
+type _MSV1_0_S4U_LOGON struct {
+	MessageType       MSV1_0_LOGON_SUBMIT_TYPE
+	Flags             uint32
+	UserPrincipalName _LSA_UNICODE_STRING
+	DomainName        _LSA_UNICODE_STRING
+}
+
+// typedef struct _TOKEN_GROUPS {
+//   DWORD              GroupCount;
+//   SID_AND_ATTRIBUTES Groups[ANYSIZE_ARRAY];
+// } TOKEN_GROUPS, *PTOKEN_GROUPS;
+// https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_groups
+type TOKEN_GROUPS struct {
+	GroupCount uint32
+	Groups     syscall.SIDAndAttributes
+}
+
+// typedef struct _TOKEN_SOURCE {
+//   CHAR SourceName[TOKEN_SOURCE_LENGTH];
+//   LUID SourceIdentifier;
+// } TOKEN_SOURCE, *PTOKEN_SOURCE;
+// https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-token_source
+type TOKEN_SOURCE struct {
+	SourceName       [8]byte
+	SourceIdentifier windows.LUID
+}
+
+// typedef struct _QUOTA_LIMITS {
+//   SIZE_T        PagedPoolLimit;
+//   SIZE_T        NonPagedPoolLimit;
+//   SIZE_T        MinimumWorkingSetSize;
+//   SIZE_T        MaximumWorkingSetSize;
+//   SIZE_T        PagefileLimit;
+//   LARGE_INTEGER TimeLimit;
+// } QUOTA_LIMITS, *PQUOTA_LIMITS;
+// https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-quota_limits
+type QUOTA_LIMITS struct {
+	PagedPoolLimit        uintptr
+	NonPagedPoolLimit     uintptr
+	MinimumWorkingSetSize uintptr
+	MaximumWorkingSetSize uintptr
+	PagefileLimit         uintptr
+	TimeLimit             uint64
+}
+
+// https://msdn.microsoft.com/en-us/library/windows/hardware/ff565436(v=vs.85).aspx
+type NtStatus uint32
+
+// NTSTATUS LsaRegisterLogonProcess(
+//   PLSA_STRING           LogonProcessName,
+//   PHANDLE               LsaHandle,
+//   PLSA_OPERATIONAL_MODE SecurityMode
+// );
+// https://docs.microsoft.com/en-us/windows/win32/api/ntsecapi/nf-ntsecapi-lsaregisterlogonprocess
+func lsaRegisterLogonProcess(logonProcessName string) (syscall.Handle, error) {
+	var lsaHandle syscall.Handle
+	var securityMode _LSA_OPERATIONAL_MODE
+	logonProcessNameString := toLSAUnicodeString(logonProcessName)
+	status, _, _ := procLsaRegisterLogonProcess.Call(
+		uintptr(unsafe.Pointer(&logonProcessNameString)),
+		uintptr(unsafe.Pointer(&lsaHandle)),
+		uintptr(unsafe.Pointer(&securityMode)),
+	)
+	if status == _STATUS_SUCCESS {
+		return lsaHandle, nil
+	}
+	return syscall.InvalidHandle, lsaNtStatusToWinError(status)
+}
+
+// NTSTATUS LsaLookupAuthenticationPackage(
+//   HANDLE      LsaHandle,
+//   PLSA_STRING PackageName,
+//   PULONG      AuthenticationPackage
+// );
+// https://docs.microsoft.com/en-us/windows/win32/api/ntsecapi/nf-ntsecapi-lsalookupauthenticationpackage
+func lsaLookupAuthenticationPackage(lsaHandle syscall.Handle, packageName string) (uint32, error) {
+	var authenticationPackage uint32
+	packageNameString := toLSAUnicodeString(packageName)
+	status, _, _ := procLsaLookupAuthenticationPackage.Call(
+		uintptr(lsaHandle),
+		uintptr(unsafe.Pointer(&packageNameString)),
+		uintptr(unsafe.Pointer(&authenticationPackage)),
+	)
+	if status == _STATUS_SUCCESS {
+		return authenticationPackage, nil
+	}
+	return 0, lsaNtStatusToWinError(status)
+}
+
+// NTSTATUS LsaLogonUser(
+//   HANDLE              LsaHandle,
+//   PLSA_STRING         OriginName,
+//   SECURITY_LOGON_TYPE LogonType,
+//   ULONG               AuthenticationPackage,
+//   PVOID               AuthenticationInformation,
+//   ULONG               AuthenticationInformationLength,
+//   PTOKEN_GROUPS       LocalGroups,
+//   PTOKEN_SOURCE       SourceContext,
+//   PVOID               *ProfileBuffer,
+//   PULONG              ProfileBufferLength,
+//   PLUID               LogonId,
+//   PHANDLE             Token,
+//   PQUOTA_LIMITS       Quotas,
+//   PNTSTATUS           SubStatus
+// );
+// https://docs.microsoft.com/en-us/windows/win32/api/ntsecapi/nf-ntsecapi-lsalogonuser
+func lsaLogonUser(
+	lsaHandle syscall.Handle,
+	originName string,
+	logonType SECURITY_LOGON_TYPE,
+	authenticationPackage uint32,
+	authenticationInformation *byte,
+	authenticationInformationLength uint32,
+	localGroups *TOKEN_GROUPS,
+	sourceContext *TOKEN_SOURCE,
+	profileBuffer *uintptr,
+	profileBufferLength *uint32,
+	logonId *windows.LUID,
+	token *syscall.Handle,
+	quotas *QUOTA_LIMITS,
+	subStatus *NtStatus,
+) error {
+	originNameString := toLSAUnicodeString(originName)
+	status, _, _ := procLsaLogonUser.Call(
+		uintptr(lsaHandle),
+		uintptr(unsafe.Pointer(&originNameString)),
+		uintptr(logonType),
+		uintptr(authenticationPackage),
+		uintptr(unsafe.Pointer(authenticationInformation)),
+		uintptr(authenticationInformationLength),
+		uintptr(unsafe.Pointer(localGroups)),
+		uintptr(unsafe.Pointer(sourceContext)),
+		uintptr(unsafe.Pointer(profileBuffer)),
+		uintptr(unsafe.Pointer(profileBufferLength)),
+		uintptr(unsafe.Pointer(logonId)),
+		uintptr(unsafe.Pointer(token)),
+		uintptr(unsafe.Pointer(quotas)),
+		uintptr(unsafe.Pointer(subStatus)),
+	)
 	if status == _STATUS_SUCCESS {
 		return nil
 	}

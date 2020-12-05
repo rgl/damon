@@ -319,3 +319,13 @@ func createRestrictedToken(hToken syscall.Token, res TokenRestrictions) (*syscal
 	)
 	return &NewTokenHandle, testReturnCodeNonZero(ret, err)
 }
+
+func CreateServiceUserToken(user string) (*syscall.Token, error) {
+	lsaHandle, err := lsaRegisterLogonProcess("damon") // TODO register this only once?
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO continue...
+	return nil, nil
+}

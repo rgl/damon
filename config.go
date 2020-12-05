@@ -39,6 +39,7 @@ const (
 	EnvNomadCPULimit           = "NOMAD_CPU_LIMIT"
 	EnvDamonMemoryLimit        = "DAMON_MEMORY_LIMIT"
 	EnvNomadMemoryLimit        = "NOMAD_MEMORY_LIMIT"
+	EnvDamonUser               = "DAMON_USER"
 	EnvDamonRestrictedToken    = "DAMON_RESTRICTED_TOKEN"
 	EnvDamonAddress            = "DAMON_ADDR"
 	EnvDamonMetricsEndpoint    = "DAMON_METRICS_ENDPOINT"
@@ -153,6 +154,7 @@ func LoadContainerConfigFromEnvironment() (container.Config, error) {
 		cfg.EnforceMemory = envToBool(EnvDamonEnforceMemoryLimit, true)
 		cfg.MemoryMBLimit = int(mem)
 	}
+	cfg.User = os.Getenv(EnvDamonUser)
 	cfg.RestrictedToken = envToBool(EnvDamonRestrictedToken, false)
 
 	if cfg.EnforceCPU && cfg.CPUMHzLimit < container.MinimumCPUMHz {
